@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Тренажёр арабских слов</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; max-width: 600px; }
+    #intro, #loader, #controls, #trainer { margin-bottom: 20px; }
+    .hidden { display: none; }
+    .button { padding: 10px 16px; margin: 8px 4px; font-size: 1em; cursor: pointer; }
+    #arabic-word { font-size: 2em; padding: 12px; background: #f5f5f5; border-radius: 8px; white-space: nowrap; overflow-x: auto; }
+    #progress { font-size: 1.1em; margin-bottom: 12px; }
+    #correct-list, #mistake-list { max-height: 120px; overflow-y: auto; background: #f9f9f9; padding: 5px; border: 1px solid #ddd; border-radius: 4px; }
+    textarea, input[type="text"] { width: 100%; font-size: 1em; padding: 6px; margin: 4px 0; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <div id="intro">
+    <h1>Перед началом тренировок</h1>
+    <p>Дуа:</p>
+    <blockquote dir="rtl" style="font-size:2em; margin:12px 0;">
+      رَّبِّ زِدْنِى عِلْمًۭا
+    </blockquote>
+    <p>«Господь мой! Приумножь мои знания»</p>
+    <button id="done-dua" class="button">Я сделал дуа</button>
+  </div>
+
+  <div id="loader" class="hidden">
+    <p>Загружен заранее словарь — просто жмите «Начать тренировку».</p>
+  </div>
+
+  <div id="controls" class="hidden">
+    <button id="start-all" class="button">Начать тренировку</button>
+  </div>
+
+  <div id="trainer" class="hidden">
+    <div id="progress"></div>
+    <div id="arabic-word"></div>
+    <input type="text" id="answer-input" placeholder="Введите перевод">
+    <button id="submit-answer" class="button">Ответить</button>
+
+    <h3>Правильно:</h3>
+    <div id="correct-list"></div>
+    <h3>Ошибки:</h3>
+    <div id="mistake-list"></div>
+
+    <div id="after-session" class="hidden">
+      <button id="retry-all" class="button">Пройти заново</button>
+      <button id="start-mistakes" class="button">Работа над ошибками</button>
+    </div>
+  </div>
+
+  <script>
+    // 1) Жёстко задаём словарь здесь:
+    const allWords = [
+      { arabicFull: "حَرْفٌ - حُرُوفٌ", rusVariants: ["предлог"] },
+      { arabicFull: "شِفَاءٌ",       rusVariants: ["исцеление","выздоровление"] },
+      // … добавьте все ваши слова …
+    ];
+
+    let sessionWords = [], mistakes = [], total = 0, idx = 0;
+
+    const intro = document.getElementById("intro");
+    const loader = document.getElementById("loader");
+    const controls = document.getElementById("controls");
+    const trainer = document.getElementById("trainer");
+    const doneDua = document.getElementById("done-dua");
+    const startAll = document.getElementById("start-all");
+    const startMistakes = document.getElementById("start-mistakes");
+    const retryAll = document.getElementById("retry-all");
+    const progress = document.getElementById("progress");
+    const arabicWord = document.getElementById("arabic-word");
+    const answerInput = document.getElementById("answer-input");
+    const submit = document.getElementById("submit-answer");
+    const correctList = document.getElementById("correct-list");
+    const mistakeList = document.getElementById("mistake-list");
+    const after = document.getElementById("after-session");
+
+    // Переход от дуа к кнопке старта
+    doneDua.addEventListener("click", () => {
+      intro.classList.add("hidden");
+      controls.classList.remove("hidden");
+    });
+
+    // Перемешивание
+    function shuffle(a) {
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+    }
+
+    // Запуск сессии
+    function startSession(useMistakes = false) {
+      if (!useMistakes) {
+        mistakes = [];
+        startMistakes.classList.add("hidden");
+        sessionWords = allWords.slice();
+      } else {
+        sessionWords = mistakes.slice();
+      }
+      shuffle(sessionWords);
+      total = sessionWords.length;
+      idx = 0;
+      correctList.innerHTML = "";
+      mistakeList.innerHTML = "";
+      controls.classList.add("hidden");
+      trainer.classList.remove("hidden");
+      after.classList.add("hidden");
+      next();
+    }
+
+    startAll.addEventListener("click", () => startSession(false));
+    startMistakes.addEventListener("click", () => {
+      if (mistakes.length) startSession(true);
+    });
+    retryAll.addEventListener("click", () => startSession(false));
+
+    function next() {
+      if (idx >= total) {
+        progress.textContent = `Готово! ${total}/${total}, ошибок: ${mistakes.length}`;
+        submit.disabled = true;
+        if (mistakes.length) startMistakes.classList.remove("hidden");
+        after.classList.remove("hidden");
+        return;
+      }
+      const w = sessionWords[idx];
+      arabicWord.textContent = w.arabicFull;
+      progress.textContent = `${idx + 1}/${total} – ошибок: ${mistakes.length}`;
+      answerInput.value = "";
+      answerInput.focus();
+    }
+
+    function handleAnswer() {
+      const w = sessionWords[idx];
+      let ans = answerInput.value.trim().toLowerCase();
+      if (!ans) return;
+      // Нормализация: е как ё
+      const normalized = ans.replace(/е/g, "ё");
+      const correct = w.rusVariants.some(v => v === ans || v === normalized);
+      if (correct) {
+        correctList.innerHTML += `<div>${w.arabicFull} → ${ans}</div>`;
+      } else {
+        mistakes.push(w);
+        mistakeList.innerHTML += `<div>${w.arabicFull} → ${w.rusVariants.join(", ")}</div>`;
+      }
+      idx++;
+      next();
+    }
+
+    submit.addEventListener("click", handleAnswer);
+    answerInput.addEventListener("keydown", e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleAnswer();
+      }
+    });
+  </script>
+</body>
+</html>
