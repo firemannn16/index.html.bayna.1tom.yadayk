@@ -6,42 +6,54 @@
   <title>Арабский тренажёр</title>
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; max-width:900px; margin:auto; }
+    #intro { background: #fff; padding:16px; border-radius:8px; border:1px solid #ddd; margin-bottom:16px; }
+    #intro h1 { margin-top:0; }
+    #dua { direction: rtl; font-size:2em; margin:12px 0; font-weight:600; }
     #arabicWord { font-size:2rem; direction: rtl; margin:12px 0; font-weight:600; }
     input[type="text"]{ width:100%; padding:8px; font-size:1rem; box-sizing:border-box; }
     button{ padding:8px 12px; margin-top:8px; }
-    #mistake-list { width:100%; min-height:120px; box-sizing:border-box;
-                    padding:8px; font-size:0.95rem; resize:vertical; /* <-- позволяет растягивать */ }
+    #mistake-list { width:100%; min-height:120px; box-sizing:border-box; padding:8px; font-size:0.95rem; resize:vertical; }
     #controls, #trainer { margin-top:16px; }
     .small { font-size:0.9rem; color:#444; margin-top:6px; }
+    .hidden { display:none; }
   </style>
 </head>
 <body>
-  <h1>Арабский тренажёр</h1>
+  <!-- Начальный экран с дуа -->
+  <div id="intro">
+    <h1>Перед началом тренировок</h1>
+    <p>Дуа:</p>
+    <div id="dua">رَّبِّ زِدْنِى عِلْمًۭا</div>
+    <p>Перевод: «Господь мой! Приумножь мои знания»</p>
+    <button id="doneDua" disabled>Я сделал дуа</button>
+  </div>
 
-  <div id="progress" class="small"></div>
-  <div id="arabicWord"></div>
+  <!-- Основной интерфейс (скрыт пока не сделают дуа) -->
+  <div id="main" class="hidden">
+    <h1>Арабский тренажёр</h1>
 
-  <input id="userInput" type="text" placeholder="Введите перевод на русском">
-  <br>
-  <button id="submitBtn">Ответить</button>
+    <div id="progress" class="small"></div>
+    <div id="arabicWord"></div>
 
-  <h3>Правильно:</h3>
-  <div id="correct-list" class="small"></div>
+    <input id="userInput" type="text" placeholder="Введите перевод на русском">
+    <br>
+    <button id="submitBtn">Ответить</button>
 
-  <h3>Ошибки (можно растянуть рамку мышью):</h3>
-  <!-- textarea вместо div: позволяет ресайз и удобное копирование -->
-  <textarea id="mistake-list" readonly placeholder="Здесь будут ваши ошибки..."></textarea>
-  <br>
-  <button id="copyMistakesBtn">Копировать ошибки</button>
-  <button id="clearMistakesBtn">Очистить ошибки</button>
+    <h3>Правильно:</h3>
+    <div id="correct-list" class="small"></div>
+
+    <h3>Ошибки (можно растянуть рамку мышью):</h3>
+    <textarea id="mistake-list" readonly placeholder="Здесь будут ваши ошибки..."></textarea>
+    <br>
+    <button id="copyMistakesBtn">Копировать ошибки</button>
+    <button id="clearMistakesBtn">Очистить ошибки</button>
+  </div>
 
   <script>
     // Загружаем words.txt из корня
     let words = []; // { rawLine, ruVariants:[], arFull }
-    let used = new Set();
     let currentIndex = null;
     let mistakes = []; // сохраняем строки rawLine
-    let corrects = [];
 
     async function loadWords() {
       try {
@@ -50,7 +62,6 @@
         const txt = await res.text();
         const lines = txt.split(/\r?\n/).map(s => s.trim()).filter(s => s);
         words = lines.map(line => {
-          // сохраняем исходную строку целиком в rawLine
           const sepIndex = line.search(/[-–—]/);
           let ru = '', ar = '';
           if (sepIndex !== -1) {
@@ -63,13 +74,17 @@
           const ruVariants = ru.split(',').map(r => r.trim().toLowerCase()).filter(r => r);
           return { rawLine: line, ruVariants, arFull: ar };
         });
+        // включаем кнопку дуа только когда словарь загружен
+        document.getElementById('doneDua').disabled = false;
         if (words.length === 0) {
           document.getElementById('arabicWord').textContent = 'Словарь пуст.';
         } else {
           prepareOrder();
-          nextWord();
+          // не вызываем nextWord здесь — будет вызван после нажатия дуа
         }
       } catch (err) {
+        // включим кнопку, чтобы пользователь мог продолжить даже без файла
+        document.getElementById('doneDua').disabled = false;
         document.getElementById('arabicWord').textContent = 'Не удалось загрузить words.txt: ' + err;
       }
     }
@@ -166,7 +181,7 @@
     }
 
     function escapeHtml(s) {
-      return s.replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+      return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
     }
 
     // события
@@ -177,7 +192,15 @@
     document.getElementById('copyMistakesBtn').addEventListener('click', copyMistakesToClipboard);
     document.getElementById('clearMistakesBtn').addEventListener('click', clearMistakes);
 
-    // старт
+    // кнопка дуа — скрывает intro и показывает тренажёр
+    document.getElementById('doneDua').addEventListener('click', () => {
+      document.getElementById('intro').classList.add('hidden');
+      document.getElementById('main').classList.remove('hidden');
+      // если слов уже загружены — начать
+      if (words.length) nextWord();
+    });
+
+    // старт: загружаем слова
     loadWords();
   </script>
 </body>
