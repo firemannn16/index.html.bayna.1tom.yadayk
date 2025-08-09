@@ -9,13 +9,17 @@
     #intro { background: #fff; padding:16px; border-radius:8px; border:1px solid #ddd; margin-bottom:16px; }
     #intro h1 { margin-top:0; }
     #dua { direction: rtl; font-size:2em; margin:12px 0; font-weight:600; }
-    #arabicWord { font-size:2rem; direction: rtl; margin:12px 0; font-weight:600; }
+    #arabicWord { font-size:2rem; direction: rtl; margin:12px 0; font-weight:600; text-align:right; }
     input[type="text"]{ width:100%; padding:8px; font-size:1rem; box-sizing:border-box; }
     button{ padding:8px 12px; margin-top:8px; }
-    #mistake-list { width:100%; min-height:120px; box-sizing:border-box; padding:8px; font-size:0.95rem; resize:vertical; }
+    textarea { width:100%; box-sizing:border-box; padding:8px; font-size:0.95rem; resize:vertical; }
+    #correct-list { min-height:60px; font-weight:700; /* жирнее */ background:#fffdf5; border:1px solid #e0d7c2; }
+    #mistake-list { min-height:120px; font-weight:400; background:#f9f9f9; border:1px solid #ddd; }
     #controls, #trainer { margin-top:16px; }
     .small { font-size:0.9rem; color:#444; margin-top:6px; }
     .hidden { display:none; }
+    h3 { margin-bottom:6px; margin-top:16px; }
+    .btn-row { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
   </style>
 </head>
 <body>
@@ -39,14 +43,19 @@
     <br>
     <button id="submitBtn">Ответить</button>
 
-    <h3>Правильно:</h3>
-    <div id="correct-list" class="small"></div>
+    <h3>Правильно (можно растянуть рамку):</h3>
+    <textarea id="correct-list" readonly placeholder="Здесь будут верные ответы..."></textarea>
 
-    <h3>Ошибки (можно растянуть рамку мышью):</h3>
+    <h3>Ошибки (можно растянуть рамку):</h3>
     <textarea id="mistake-list" readonly placeholder="Здесь будут ваши ошибки..."></textarea>
-    <br>
-    <button id="copyMistakesBtn">Копировать ошибки</button>
-    <button id="clearMistakesBtn">Очистить ошибки</button>
+
+    <div class="btn-row">
+      <button id="copyCorrectsBtn">Копировать правильные</button>
+      <button id="copyMistakesBtn">Копировать ошибки</button>
+      <button id="downloadCorrectsBtn">Скачать правильные (.txt)</button>
+      <button id="downloadMistakesBtn">Скачать ошибки (.txt)</button>
+      <button id="clearMistakesBtn">Очистить ошибки</button>
+    </div>
   </div>
 
   <script>
@@ -54,6 +63,8 @@
     let words = []; // { rawLine, ruVariants:[], arFull }
     let currentIndex = null;
     let mistakes = []; // сохраняем строки rawLine
+    // правильные сохраняем для textarea
+    let correctLines = [];
 
     async function loadWords() {
       try {
@@ -74,16 +85,14 @@
           const ruVariants = ru.split(',').map(r => r.trim().toLowerCase()).filter(r => r);
           return { rawLine: line, ruVariants, arFull: ar };
         });
-        // включаем кнопку дуа только когда словарь загружен
+        // разблокируем кнопку дуа (готово к старту)
         document.getElementById('doneDua').disabled = false;
-        if (words.length === 0) {
-          document.getElementById('arabicWord').textContent = 'Словарь пуст.';
-        } else {
+        if (words.length) {
           prepareOrder();
-          // не вызываем nextWord здесь — будет вызван после нажатия дуа
+        } else {
+          document.getElementById('arabicWord').textContent = 'Словарь пуст.';
         }
       } catch (err) {
-        // включим кнопку, чтобы пользователь мог продолжить даже без файла
         document.getElementById('doneDua').disabled = false;
         document.getElementById('arabicWord').textContent = 'Не удалось загрузить words.txt: ' + err;
       }
@@ -121,7 +130,7 @@
     }
 
     function normalizeRu(s) {
-      return s.trim().toLowerCase().replace(/ё/g, 'е'); // е и ё считаем эквивалентными
+      return s.trim().toLowerCase().replace(/ё/g, 'е'); // е и ё эквивалентны
     }
 
     function checkAnswer() {
@@ -132,9 +141,9 @@
       const w = words[currentIndex];
       const ok = w.ruVariants.some(v => normalizeRu(v) === input || normalizeRu(v) === input.replace(/е/g,'ё') );
       if (ok) {
-        const cl = document.getElementById('correct-list');
-        const line = `${w.arFull} → ${inputRaw}`;
-        cl.innerHTML += `<div>${escapeHtml(line)}</div>`;
+        // добавляем в textarea правильных — формат: исходная строка или араб → ввод
+        correctLines.push(w.rawLine);
+        updateCorrectTextarea();
       } else {
         mistakes.push(w.rawLine);
         updateMistakeTextarea();
@@ -153,25 +162,35 @@
       ta.value = mistakes.join('\n');
     }
 
-    function copyMistakesToClipboard() {
-      const content = document.getElementById('mistake-list').value;
-      if (!content) {
-        alert('Ошибок нет для копирования.');
-        return;
-      }
-      navigator.clipboard.writeText(content).then(() => {
-        alert('Ошибки скопированы в буфер обмена.');
-      }).catch(err => {
-        const ta = document.getElementById('mistake-list');
-        ta.select();
-        try {
-          document.execCommand('copy');
-          alert('Ошибки скопированы (fallback).');
-        } catch(e) {
-          alert('Не удалось скопировать: ' + e);
-        }
-      });
+    function updateCorrectTextarea() {
+      const ta = document.getElementById('correct-list');
+      ta.value = correctLines.join('\n');
     }
+
+    function copyTextToClipboard(text, successMsg) {
+      if (!text) { alert('Нет данных для копирования.'); return; }
+      navigator.clipboard.writeText(text).then(() => { if (successMsg) alert(successMsg); })
+        .catch(() => {
+          // fallback
+          const ta = document.createElement('textarea');
+          ta.value = text; document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); alert(successMsg || 'Скопировано'); } catch(e) { alert('Не удалось скопировать'); }
+          ta.remove();
+        });
+    }
+
+    function downloadText(filename, text) {
+      if (!text) { alert('Нет данных для скачивания.'); return; }
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    }
+
+    function copyCorrects() { copyTextToClipboard(correctLines.join('\n'), 'Правильные ответы скопированы'); }
+    function copyMistakes() { copyTextToClipboard(mistakes.join('\n'), 'Ошибки скопированы'); }
+    function downloadCorrects() { downloadText('corrects.txt', correctLines.join('\n')); }
+    function downloadMistakes() { downloadText('mistakes.txt', mistakes.join('\n')); }
 
     function clearMistakes() {
       if (!confirm('Очистить список ошибок?')) return;
@@ -180,27 +199,25 @@
       updateProgress();
     }
 
-    function escapeHtml(s) {
-      return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-    }
+    function escapeHtml(s) { return s.replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
     // события
     document.getElementById('submitBtn').addEventListener('click', checkAnswer);
-    document.getElementById('userInput').addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); checkAnswer(); }
-    });
-    document.getElementById('copyMistakesBtn').addEventListener('click', copyMistakesToClipboard);
+    document.getElementById('userInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); checkAnswer(); } });
+    document.getElementById('copyCorrectsBtn').addEventListener('click', copyCorrects);
+    document.getElementById('copyMistakesBtn').addEventListener('click', copyMistakes);
+    document.getElementById('downloadCorrectsBtn').addEventListener('click', downloadCorrects);
+    document.getElementById('downloadMistakesBtn').addEventListener('click', downloadMistakes);
     document.getElementById('clearMistakesBtn').addEventListener('click', clearMistakes);
 
     // кнопка дуа — скрывает intro и показывает тренажёр
     document.getElementById('doneDua').addEventListener('click', () => {
       document.getElementById('intro').classList.add('hidden');
       document.getElementById('main').classList.remove('hidden');
-      // если слов уже загружены — начать
       if (words.length) nextWord();
     });
 
-    // старт: загружаем слова
+    // старт
     loadWords();
   </script>
 </body>
