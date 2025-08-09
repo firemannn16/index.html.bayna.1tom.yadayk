@@ -1,155 +1,184 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <title>Тренажёр арабских слов</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Арабский тренажёр</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; max-width: 600px; }
-    #intro, #controls, #trainer { margin-bottom: 20px; }
-    .hidden { display: none; }
-    .button { padding: 10px 16px; margin: 8px 4px; font-size: 1em; cursor: pointer; }
-    #arabic-word { font-size: 2em; padding: 12px; background: #f5f5f5; border-radius: 8px; white-space: nowrap; overflow-x: auto; }
-    #progress { font-size: 1.1em; margin-bottom: 12px; }
-    #correct-list, #mistake-list { max-height: 120px; overflow-y: auto; background: #f9f9f9; padding: 5px; border: 1px solid #ddd; border-radius: 4px; }
-    input[type="text"] { width: 100%; font-size: 1em; padding: 6px; margin: 4px 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; padding: 20px; max-width:900px; margin:auto; }
+    #arabicWord { font-size:2rem; direction: rtl; margin:12px 0; font-weight:600; }
+    input[type="text"]{ width:100%; padding:8px; font-size:1rem; box-sizing:border-box; }
+    button{ padding:8px 12px; margin-top:8px; }
+    #mistake-list { width:100%; min-height:120px; box-sizing:border-box;
+                    padding:8px; font-size:0.95rem; resize:vertical; /* <-- позволяет растягивать */ }
+    #controls, #trainer { margin-top:16px; }
+    .small { font-size:0.9rem; color:#444; margin-top:6px; }
   </style>
 </head>
 <body>
-  <div id="intro">
-    <h1>Перед началом тренировок</h1>
-    <p>Дуа:</p>
-    <blockquote dir="rtl" style="font-size:2em; margin:12px 0;">
-      رَّبِّ زِدْنِى عِلْمًۭا
-    </blockquote>
-    <p>«Господь мой! Приумножь мои знания»</p>
-    <button id="done-dua" class="button">Я сделал дуа</button>
-  </div>
+  <h1>Арабский тренажёр</h1>
 
-  <div id="controls" class="hidden">
-    <button id="start-all" class="button">Начать тренировку</button>
-  </div>
+  <div id="progress" class="small"></div>
+  <div id="arabicWord"></div>
 
-  <div id="trainer" class="hidden">
-    <div id="progress"></div>
-    <div id="arabic-word"></div>
-    <input type="text" id="answer-input" placeholder="Введите перевод">
-    <button id="submit-answer" class="button">Ответить</button>
-    <h3>Правильно:</h3>
-    <div id="correct-list"></div>
-    <h3>Ошибки:</h3>
-    <div id="mistake-list"></div>
-    <div id="after-session" class="hidden">
-      <button id="retry-all" class="button">Пройти заново</button>
-      <button id="start-mistakes" class="button">Работа над ошибками</button>
-    </div>
-  </div>
+  <input id="userInput" type="text" placeholder="Введите перевод на русском">
+  <br>
+  <button id="submitBtn">Ответить</button>
 
-<script>
-  // Здесь мы будем загружать список слов из файла words.txt в корне
-  let allWords = [];
-  fetch('words.txt')
-    .then(res => res.text())
-    .then(text => {
-      allWords = text.split(/\r?\n/)
-        .map(l => l.trim())
-        .filter(l => l)
-        .map(line => {
-          const sep = line.search(/[-–—]/);
-          const rus = sep !== -1 ? line.slice(0, sep).trim() : '';
-          const arab = sep !== -1 ? line.slice(sep + 1).trim() : '';
-          const rusVars = rus.split(',').map(r => r.trim().toLowerCase());
-          return { arabicFull: arab, rusVariants: rusVars };
+  <h3>Правильно:</h3>
+  <div id="correct-list" class="small"></div>
+
+  <h3>Ошибки (можно растянуть рамку мышью):</h3>
+  <!-- textarea вместо div: позволяет ресайз и удобное копирование -->
+  <textarea id="mistake-list" readonly placeholder="Здесь будут ваши ошибки..."></textarea>
+  <br>
+  <button id="copyMistakesBtn">Копировать ошибки</button>
+  <button id="clearMistakesBtn">Очистить ошибки</button>
+
+  <script>
+    // Загружаем words.txt из корня
+    let words = []; // { rawLine, ruVariants:[], arFull }
+    let used = new Set();
+    let currentIndex = null;
+    let mistakes = []; // сохраняем строки rawLine
+    let corrects = [];
+
+    async function loadWords() {
+      try {
+        const res = await fetch('words.txt');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const txt = await res.text();
+        const lines = txt.split(/\r?\n/).map(s => s.trim()).filter(s => s);
+        words = lines.map(line => {
+          // сохраняем исходную строку целиком в rawLine
+          const sepIndex = line.search(/[-–—]/);
+          let ru = '', ar = '';
+          if (sepIndex !== -1) {
+            ru = line.slice(0, sepIndex).trim();
+            ar = line.slice(sepIndex + 1).trim();
+          } else {
+            ru = line;
+            ar = '';
+          }
+          const ruVariants = ru.split(',').map(r => r.trim().toLowerCase()).filter(r => r);
+          return { rawLine: line, ruVariants, arFull: ar };
         });
-      // После загрузки слов показываем кнопку старта
-      document.getElementById('done-dua').disabled = false;
-    })
-    .catch(err => alert('Не удалось загрузить words.txt: ' + err));
-
-  let sessionWords = [], mistakes = [], total = 0, idx = 0;
-  const intro = document.getElementById('intro');
-  const controls = document.getElementById('controls');
-  const trainer = document.getElementById('trainer');
-  const doneDua = document.getElementById('done-dua');
-  const startAll = document.getElementById('start-all');
-  const startMistakes = document.getElementById('start-mistakes');
-  const retryAll = document.getElementById('retry-all');
-  const progress = document.getElementById('progress');
-  const arabicWord = document.getElementById('arabic-word');
-  const answerInput = document.getElementById('answer-input');
-  const submit = document.getElementById('submit-answer');
-  const correctList = document.getElementById('correct-list');
-  const mistakeList = document.getElementById('mistake-list');
-  const after = document.getElementById('after-session');
-
-  doneDua.addEventListener('click', () => {
-    intro.classList.add('hidden');
-    controls.classList.remove('hidden');
-  });
-
-  function shuffle(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
+        if (words.length === 0) {
+          document.getElementById('arabicWord').textContent = 'Словарь пуст.';
+        } else {
+          prepareOrder();
+          nextWord();
+        }
+      } catch (err) {
+        document.getElementById('arabicWord').textContent = 'Не удалось загрузить words.txt: ' + err;
+      }
     }
-  }
 
-  function startSession(useMistakes = false) {
-    if (!useMistakes) {
+    function shuffleIndices(n) {
+      const arr = [...Array(n).keys()];
+      for (let i = arr.length-1; i>0; i--) {
+        const j = Math.floor(Math.random()*(i+1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    const order = []; // порядок индексов
+    function prepareOrder() {
+      order.length = 0;
+      const idxs = shuffleIndices(words.length);
+      for (const i of idxs) order.push(i);
+    }
+
+    function nextWord() {
+      if (order.length === 0) prepareOrder();
+      if (order.length === 0) {
+        document.getElementById('arabicWord').textContent = 'Нет слов для тренировки.';
+        return;
+      }
+      const idx = order.shift();
+      currentIndex = idx;
+      const w = words[idx];
+      document.getElementById('arabicWord').textContent = w.arFull || w.rawLine;
+      updateProgress();
+      document.getElementById('userInput').value = '';
+      document.getElementById('userInput').focus();
+    }
+
+    function normalizeRu(s) {
+      return s.trim().toLowerCase().replace(/ё/g, 'е'); // е и ё считаем эквивалентными
+    }
+
+    function checkAnswer() {
+      if (currentIndex === null) return;
+      const inputRaw = document.getElementById('userInput').value;
+      const input = normalizeRu(inputRaw);
+      if (!input) return;
+      const w = words[currentIndex];
+      const ok = w.ruVariants.some(v => normalizeRu(v) === input || normalizeRu(v) === input.replace(/е/g,'ё') );
+      if (ok) {
+        const cl = document.getElementById('correct-list');
+        const line = `${w.arFull} → ${inputRaw}`;
+        cl.innerHTML += `<div>${escapeHtml(line)}</div>`;
+      } else {
+        mistakes.push(w.rawLine);
+        updateMistakeTextarea();
+      }
+      currentIndex = null;
+      nextWord();
+    }
+
+    function updateProgress() {
+      const done = (typeof currentIndex === 'number') ? (1 + (words.length - order.length - 1)) : (words.length - order.length);
+      document.getElementById('progress').textContent = `${done}/${words.length} слов пройдено – ${mistakes.length} ошибок`;
+    }
+
+    function updateMistakeTextarea() {
+      const ta = document.getElementById('mistake-list');
+      ta.value = mistakes.join('\n');
+    }
+
+    function copyMistakesToClipboard() {
+      const content = document.getElementById('mistake-list').value;
+      if (!content) {
+        alert('Ошибок нет для копирования.');
+        return;
+      }
+      navigator.clipboard.writeText(content).then(() => {
+        alert('Ошибки скопированы в буфер обмена.');
+      }).catch(err => {
+        const ta = document.getElementById('mistake-list');
+        ta.select();
+        try {
+          document.execCommand('copy');
+          alert('Ошибки скопированы (fallback).');
+        } catch(e) {
+          alert('Не удалось скопировать: ' + e);
+        }
+      });
+    }
+
+    function clearMistakes() {
+      if (!confirm('Очистить список ошибок?')) return;
       mistakes = [];
-      startMistakes.classList.add('hidden');
-      sessionWords = allWords.slice();
-    } else {
-      sessionWords = mistakes.slice();
+      updateMistakeTextarea();
+      updateProgress();
     }
-    shuffle(sessionWords);
-    total = sessionWords.length;
-    idx = 0;
-    correctList.innerHTML = '';
-    mistakeList.innerHTML = '';
-    controls.classList.add('hidden');
-    trainer.classList.remove('hidden');
-    after.classList.add('hidden');
-    next();
-  }
 
-  startAll.addEventListener('click', () => startSession(false));
-  startMistakes.addEventListener('click', () => { if (mistakes.length) startSession(true); });
-  retryAll.addEventListener('click', () => startSession(false));
-
-  function next() {
-    if (idx >= total) {
-      progress.textContent = `Готово! ${total}/${total}, ошибок: ${mistakes.length}`;
-      submit.disabled = true;
-      if (mistakes.length) startMistakes.classList.remove('hidden');
-      after.classList.remove('hidden');
-      return;
+    function escapeHtml(s) {
+      return s.replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
     }
-    const w = sessionWords[idx];
-    arabicWord.textContent = w.arabicFull;
-    progress.textContent = `${idx + 1}/${total} – ошибок: ${mistakes.length}`;
-    answerInput.value = '';
-    answerInput.focus();
-  }
 
-  function handleAnswer() {
-    const w = sessionWords[idx];
-    let ans = answerInput.value.trim().toLowerCase();
-    if (!ans) return;
-    const normalized = ans.replace(/е/g, 'ё');
-    const correct = w.rusVariants.some(v => v === ans || v === normalized);
-    if (correct) {
-      correctList.innerHTML += `<div>${w.arabicFull} → ${ans}</div>`;
-    } else {
-      mistakes.push(w);
-      mistakeList.innerHTML += `<div>${w.arabicFull} → ${w.rusVariants.join(', ')}</div>`;
-    }
-    idx++;
-    next();
-  }
+    // события
+    document.getElementById('submitBtn').addEventListener('click', checkAnswer);
+    document.getElementById('userInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); checkAnswer(); }
+    });
+    document.getElementById('copyMistakesBtn').addEventListener('click', copyMistakesToClipboard);
+    document.getElementById('clearMistakesBtn').addEventListener('click', clearMistakes);
 
-  submit.addEventListener('click', handleAnswer);
-  answerInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); handleAnswer(); } });
-</script>
+    // старт
+    loadWords();
+  </script>
 </body>
 </html>
