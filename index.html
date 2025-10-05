@@ -198,14 +198,41 @@
   function normalizeRu(s) { return s.trim().toLowerCase().replace(/ё/g, 'е'); }
 
   function showWrongModal(correctText, afterCloseCallback) {
+    // close any previous modal first
     closeModal();
     const root = document.getElementById('modal-root');
     const overlay = document.createElement('div'); overlay.className = 'overlay';
     const modal = document.createElement('div'); modal.className = 'modal';
-    modal.innerHTML = `\n      <h2>Неправильно</h2>\n      <div>Правильный ответ:</div>\n      <div class="correct">${escapeHtml(correctText)}</div>\n    `;
-    overlay.appendChild(modal); root.appendChild(overlay);
-    function cleanup() { if (modalTimeout) { clearTimeout(modalTimeout); modalTimeout = null; } if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }
-    modal.addEventListener('click', () => { cleanup(); if (typeof afterCloseCallback === 'function') afterCloseCallback(); });
+    modal.setAttribute('role','dialog');
+    modal.setAttribute('aria-modal','true');
+
+    modal.innerHTML = `
+      <h2>Неправильно</h2>
+      <div>Правильный ответ:</div>
+      <div class="correct">${escapeHtml(correctText)}</div>
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+        <button id="modalCloseBtn">Закрыть (Esc)</button>
+      </div>
+    `;
+
+    overlay.appendChild(modal);
+    root.appendChild(overlay);
+
+    function cleanup() {
+      if (modalTimeout) { clearTimeout(modalTimeout); modalTimeout = null; }
+      document.removeEventListener('keydown', onKey);
+      const btn = document.getElementById('modalCloseBtn');
+      if (btn) btn.removeEventListener('click', onBtn);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+    function onKey(e) { if (e.key === 'Escape') { cleanup(); if (typeof afterCloseCallback === 'function') afterCloseCallback(); } }
+    function onBtn() { cleanup(); if (typeof afterCloseCallback === 'function') afterCloseCallback(); }
+
+    document.addEventListener('keydown', onKey);
+    const btn = document.getElementById('modalCloseBtn');
+    if (btn) btn.addEventListener('click', onBtn);
+
+    // auto-close after 17 seconds
     modalTimeout = setTimeout(() => { cleanup(); if (typeof afterCloseCallback === 'function') afterCloseCallback(); }, 17000);
   }
 
