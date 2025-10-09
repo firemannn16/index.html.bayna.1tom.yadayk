@@ -78,7 +78,9 @@
   let mode = 'all'; // 'all' или 'mistakes'
   let modalTimeout = null;
 
-  const STORAGE_KEY = 'arabicTrainerState_v1';
+  const APP_ID = 'trainer_two';
+const STORAGE_KEY = `arabicTrainerState_v1_${APP_ID}`;
+
 
   function parseLine(line) {
     const raw = line.trim();
