@@ -83,14 +83,13 @@
 <script>
   // ====== Основные структуры ======
   let words = []; // { rawLine, ruVariants:[], arFull }
-  let orderRaw = []; // remaining rawLines (those NOT shown yet in current main session)
-  let currentRaw = null; // current rawLine shown
-  let mistakes = []; // rawLines user answered incorrectly
-  let correctLines = []; // rawLines user answered correctly (we will store full rawLine)
-  let mode = 'all'; // 'all' or 'mistakes'
+  let orderRaw = []; // remaining rawLines (те, что в очереди)
+  let currentRaw = null;
+  let mistakes = [];
+  let correctLines = [];
+  let mode = 'all';
   let modalTimeout = null;
 
-  // Уникальный STORAGE_KEY (hostname + pathname) — разные страницы не конфликтуют
   const STORAGE_KEY = (() => {
     const path = (location.pathname || '/').replace(/^\/|\/$/g,'').replace(/\//g,'_') || 'root';
     return `arabic_trainer_state_v1_${encodeURIComponent(location.hostname + '_' + path)}`;
@@ -114,8 +113,21 @@
     }
   }
 
-  function normalizeRu(s) { return String(s).trim().toLowerCase().replace(/ё/g, 'е'); }
-  function escapeHtml(s) { return String(s).replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'})[c]); }
+  function normalizeRu(s) { return String(s||'').trim().toLowerCase().replace(/ё/g, 'е'); }
+  function escapeHtml(s) { return String(s||'').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'})[c]); }
+
+  // ====== Частичная ошибка: проверка последнего символа ======
+  function isLastCharMistake(inputRaw, targetRaw){
+    if(!inputRaw || !targetRaw) return false;
+    const input = normalizeRu(inputRaw);
+    const target = normalizeRu(targetRaw);
+    if(!input || !target) return false;
+    if(input === target) return false;
+    if(input === target.slice(0, -1)) return true;
+    if(input.length === target.length && input.slice(0, -1) === target.slice(0, -1)) return true;
+    if(input.length === target.length - 1 && target.startsWith(input)) return true;
+    return false;
+  }
 
   // ====== Сохранение/восстановление состояния ======
   function saveState() {
@@ -143,7 +155,7 @@
 
   function clearSavedState() { localStorage.removeItem(STORAGE_KEY); }
 
-  // ====== Порядок и получение следующего слова ======
+  // ====== Order / nextWord ======
   function prepareOrder(source='all') {
     if (source === 'all') {
       orderRaw = words.map(w => w.rawLine);
@@ -177,6 +189,10 @@
     saveState();
 
     const w = words.find(w => w.rawLine === raw) || { rawLine: raw, ruVariants: [], arFull: raw };
+    if (!w.arFull || !w.arFull.trim()) {
+      // логируем в консоль: позволит быстро выяснить "нет арабского формата"
+      console.warn('No arabic format for', raw, w);
+    }
     document.getElementById('arabicWord').textContent = w.arFull || w.rawLine;
     updateProgress();
     document.getElementById('userInput').value = '';
@@ -184,7 +200,7 @@
     return w;
   }
 
-  // ====== Завершение сессии ======
+  // ====== Завершение / прогресс ======
   function finishSession() {
     const total = words.length || 0;
     const done = total - (orderRaw ? orderRaw.length : 0);
@@ -203,21 +219,14 @@
     document.getElementById('progress').textContent = `${done}/${total} слов пройдено – ${mistakes.length} ошибок`;
   }
 
-  // ====== Модалка неправильного ответа ======
-  function showWrongModal(correctText, afterCloseCallback) {
+  // ====== Модалки ======
+  function showInfoModal(title, bodyHtml, afterCloseCallback, autoCloseMs = 5000) {
     closeModal();
     const root = document.getElementById('modal-root');
     const overlay = document.createElement('div'); overlay.className = 'overlay';
     const modal = document.createElement('div'); modal.className = 'modal';
     modal.setAttribute('role','dialog'); modal.setAttribute('aria-modal','true');
-    modal.innerHTML = `
-      <h2>Неправильно</h2>
-      <div>Правильный ответ:</div>
-      <div class="correct">${escapeHtml(correctText)}</div>
-      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
-        <button id="modalCloseBtn">Закрыть (Esc)</button>
-      </div>
-    `;
+    modal.innerHTML = `<h2>${escapeHtml(title)}</h2><div>${bodyHtml}</div><div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;"><button id="modalCloseBtn">Закрыть (Esc)</button></div>`;
     overlay.appendChild(modal); root.appendChild(overlay);
 
     function cleanup() {
@@ -232,35 +241,61 @@
     document.addEventListener('keydown', onKey);
     const btn = document.getElementById('modalCloseBtn'); if (btn) btn.addEventListener('click', onBtn);
 
-    modalTimeout = setTimeout(() => { cleanup(); if (typeof afterCloseCallback === 'function') afterCloseCallback(); }, 17000);
+    modalTimeout = setTimeout(() => { cleanup(); if (typeof afterCloseCallback === 'function') afterCloseCallback(); }, autoCloseMs);
   }
+
+  function showWrongModal(correctText, afterCloseCallback) {
+    showInfoModal('Неправильно', `<div>Правильный ответ:</div><div class="correct">${escapeHtml(correctText)}</div>`, afterCloseCallback, 17000);
+  }
+
+  function showPartialModal(correctText, afterCloseCallback) {
+    showInfoModal('Почти правильно — засчитано как верный ответ', `<div>Полный правильный ответ:</div><div class="correct">${escapeHtml(correctText)}</div>`, afterCloseCallback, 5000);
+  }
+
   function closeModal() { const root = document.getElementById('modal-root'); root.innerHTML = ''; if (modalTimeout) { clearTimeout(modalTimeout); modalTimeout = null; } }
 
-  // ====== Проверка ответа (и запись в правильные/ошибки) ======
+  // ====== Проверка ответа (и запись) ======
   function checkAnswer() {
     if (!currentRaw) return;
     const inputRaw = document.getElementById('userInput').value;
     const input = normalizeRu(inputRaw);
     if (!input) return;
     const wObj = words.find(w => w.rawLine === currentRaw) || { ruVariants: [] };
-    const ok = (wObj.ruVariants || []).some(v => normalizeRu(v) === input || normalizeRu(v) === input.replace(/е/g,'ё'));
-    if (ok) {
-      correctLines.push(wObj.rawLine);
+
+    const exactOk = (wObj.ruVariants || []).some(v => normalizeRu(v) === input || normalizeRu(v) === input.replace(/е/g,'ё'));
+    if (exactOk) {
+      if (!correctLines.includes(wObj.rawLine)) correctLines.push(wObj.rawLine);
       document.getElementById('correct-list').value = correctLines.join('\n');
       saveState();
+      currentRaw = null;
       if (!orderRaw || orderRaw.length === 0) finishSession(); else nextWord();
-    } else {
-      mistakes.push(currentRaw);
-      document.getElementById('mistake-list').value = mistakes.join('\n');
+      return;
+    }
+
+    const partialOk = (wObj.ruVariants || []).some(v => isLastCharMistake(input, v));
+    if (partialOk) {
+      if (!correctLines.includes(wObj.rawLine)) correctLines.push(wObj.rawLine);
+      document.getElementById('correct-list').value = correctLines.join('\n');
       saveState();
       const correctText = wObj.rawLine || currentRaw;
-      showWrongModal(correctText, () => {
+      showPartialModal(correctText, () => {
+        currentRaw = null;
         if (!orderRaw || orderRaw.length === 0) finishSession(); else nextWord();
       });
+      return;
     }
+
+    if (!mistakes.includes(currentRaw)) mistakes.push(currentRaw);
+    document.getElementById('mistake-list').value = mistakes.join('\n');
+    saveState();
+    const correctText = wObj.rawLine || currentRaw;
+    showWrongModal(correctText, () => {
+      currentRaw = null;
+      if (!orderRaw || orderRaw.length === 0) finishSession(); else nextWord();
+    });
   }
 
-  // ====== Добавить новые слова (вставка в случайные позиции) ======
+  // ====== Добавить новые слова (только по кнопке) ======
   async function addNewWords() {
     try {
       const res = await fetch('words.txt', { cache: 'no-store' });
@@ -271,17 +306,13 @@
       const newly = serverLines.filter(r => !existing.has(r));
       if (!newly.length) { alert('Новых слов не найдено.'); return; }
       const newObjs = newly.map(l => parseLine(l));
-      // добавляем объекты в словарь
       for (const obj of newObjs) words.push(obj);
-
-      // Вставляем каждое новое слово в случайную позицию очереди (orderRaw)
       for (const raw of newly) {
         if (!orderRaw.includes(raw) && currentRaw !== raw) {
           const pos = Math.floor(Math.random() * (orderRaw.length + 1));
           orderRaw.splice(pos, 0, raw);
         }
       }
-
       saveState(); updateProgress();
       alert('Добавлено ' + newly.length + ' новых слов. Они будут заданы в случайных местах очереди.');
     } catch (err) {
@@ -289,7 +320,7 @@
     }
   }
 
-  // ====== Сброс прогресса — очистка и возврат на экран дуа ======
+  // ====== Сброс прогресса (полный) ======
   function resetProgress() {
     if (!confirm('Вы уверены? Это сбросит локальный прогресс и начнёт словарь с нуля.')) return;
     clearSavedState();
@@ -303,7 +334,7 @@
     updateProgress();
   }
 
-  // ====== UI: копирование ошибок ======
+  // ====== Копирование ошибок ======
   function copyTextToClipboard(text, msg) {
     if (!text) { alert('Нет данных для копирования.'); return; }
     navigator.clipboard.writeText(text).then(()=> alert(msg)).catch(()=> {
@@ -312,7 +343,7 @@
     });
   }
 
-  // ====== Загрузка слов и восстановление состояния (но показываем дуа пока не нажмут) ======
+  // ====== Загрузка слов и восстановление состояния (НО НЕ ДОБАВЛЯЕМ НОВЫЕ СЕРВЕРНЫЕ СТРОКИ) ======
   async function loadWords() {
     try {
       const res = await fetch('words.txt');
@@ -321,23 +352,25 @@
       const serverLines = txt.split(/\r?\n/).map(s => s.trim()).filter(s => s);
       words = serverLines.map(l => parseLine(l));
 
-      // load saved state if exists, but DO NOT auto-append server new lines to orderRaw
+      // load saved state if exists, but DO NOT auto-append new server lines to orderRaw
       const saved = loadState();
       if (saved && Array.isArray(saved.orderRaw) && saved.orderRaw.length) {
         orderRaw = saved.orderRaw.filter(r => serverLines.includes(r));
+        // не добавляем новые строки с сервера автоматически
         mistakes = Array.isArray(saved.mistakes) ? saved.mistakes.filter(r => serverLines.includes(r)) : [];
         correctLines = Array.isArray(saved.correctLines) ? saved.correctLines.filter(r => serverLines.includes(r)) : [];
         currentRaw = saved.currentRaw && serverLines.includes(saved.currentRaw) ? saved.currentRaw : null;
         mode = saved.mode || 'all';
         document.getElementById('mistake-list').value = mistakes.join('\n');
         document.getElementById('correct-list').value = correctLines.join('\n');
+        // show intro, let user click "Я сделал дуа" to resume
         document.getElementById('intro').classList.remove('hidden');
         document.getElementById('main').classList.add('hidden');
         updateProgress();
         return;
       }
 
-      // no saved state -> initialize fresh and show intro
+      // no saved state -> initialize fresh and show intro (this happens e.g. after full reset)
       prepareOrder('all');
       document.getElementById('intro').classList.remove('hidden');
       document.getElementById('main').classList.add('hidden');
